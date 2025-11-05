@@ -1,4 +1,6 @@
 streamlit
-plotly
 pandas
 numpy
+requests
+python-dateutil
+pytz
