@@ -24,36 +24,70 @@ days_daily    = st.sidebar.number_input("Daily Tage (Kalendertage)", 30, 200, va
 benchmark     = st.sidebar.text_input("Benchmark", value=SPY).strip().upper()
 
 # Mapping: Upload ODER URL/Cache
-st.sidebar.subheader("📂 Mapping (symbol,group)")
-uploaded_file = st.sidebar.file_uploader("CSV hochladen", type=["csv"], key="mapping_upload")
-df_mapping = pd.DataFrame(columns=["symbol","group"])
+# ===== Mapping: Upload ODER URL/Cache =====
+st.sidebar.subheader("🗂️ Mapping (Symbol / Gruppe)")
+
+uploaded_file = st.sidebar.file_uploader("CSV hochladen (z. B. MarketSurge Export)", type=["csv"])
+df_mapping = pd.DataFrame(columns=["symbol", "group"])
+
 if uploaded_file:
     try:
-        df_mapping = pd.read_csv(uploaded_file)
-        if {"symbol","group"}.issubset(df_mapping.columns):
-            df_mapping["symbol"] = df_mapping["symbol"].astype(str).str.upper().str.strip()
-            df_mapping["group"]  = df_mapping["group"].astype(str).str.strip()
-            st.session_state["mapping_df"] = df_mapping.copy()
-            with open("mapping_latest.csv","wb") as f: f.write(uploaded_file.getbuffer())
+        df_raw = pd.read_csv(uploaded_file)
+
+        # --- Spaltennamen normalisieren ---
+        df_raw.columns = [c.strip().lower().replace(" ", "") for c in df_raw.columns]
+
+        # --- Symbol- und Gruppenspalten erkennen ---
+        symbol_col = None
+        group_col = None
+        for c in df_raw.columns:
+            if "symbol" in c:
+                symbol_col = c
+            elif any(x in c for x in ["industryname", "group", "sector", "branche"]):
+                group_col = c
+
+        # --- Mapping erstellen ---
+        if symbol_col and group_col:
+            df_mapping = df_raw[[symbol_col, group_col]].copy()
+            df_mapping.columns = ["symbol", "group"]
+            df_mapping["symbol"] = df_mapping["symbol"].astype(str).str.strip().str.upper()
+            df_mapping["group"] = df_mapping["group"].astype(str).str.strip()
+            df_mapping = df_mapping.dropna(subset=["symbol"]).reset_index(drop=True)
+
+            # --- Session speichern und lokal zwischenspeichern ---
+            st.session_state["mapping_df"] = df_mapping
+            with open("mapping_latest.csv", "w", encoding="utf-8") as f:
+                df_mapping.to_csv(f, index=False)
             st.sidebar.success(f"✅ {len(df_mapping)} Zuordnungen geladen.")
         else:
-            st.sidebar.error("Spalten 'symbol' und 'group' fehlen.")
-            df_mapping = pd.DataFrame(columns=["symbol","group"])
+            st.sidebar.error("⚠️ Spalten 'Symbol' und 'Industry Name' konnten nicht erkannt werden.")
+            st.write("Erkannte Spalten:", list(df_raw.columns))
+
     except Exception as e:
-        st.sidebar.error(f"Fehler beim Einlesen: {e}")
+        st.sidebar.error(f"❌ Fehler beim Lesen der CSV: {e}")
+        df_mapping = pd.DataFrame(columns=["symbol", "group"])
+
 else:
-    if "mapping_df" in st.session_state and not st.session_state["mapping_df"].empty:
-        df_mapping = st.session_state["mapping_df"].copy()
-        st.sidebar.info(f"📄 Mapping aus Session geladen ({len(df_mapping)})")
-    elif os.path.exists("mapping_latest.csv"):
+    # --- Falls kein Upload: Letzte gespeicherte Datei oder Secret-URL versuchen ---
+    if os.path.exists("mapping_latest.csv"):
         try:
             df_mapping = pd.read_csv("mapping_latest.csv")
-            df_mapping["symbol"] = df_mapping["symbol"].astype(str).str.upper().str.strip()
-            df_mapping["group"]  = df_mapping["group"].astype(str).str.strip()
-            st.session_state["mapping_df"] = df_mapping.copy()
-            st.sidebar.info(f"📄 Mapping aus lokalem Cache geladen ({len(df_mapping)})")
+            st.session_state["mapping_df"] = df_mapping
+            st.sidebar.info(f"📄 Mapping aus lokalem Cache geladen ({len(df_mapping)} Zeilen)")
         except Exception as e:
-            st.sidebar.warning(f"Cache-Datei fehlerhaft: {e}")
+            st.sidebar.warning(f"⚠️ Konnte lokalen Cache nicht laden: {e}")
+    else:
+        mapping_url = st.secrets.get("MAPPING_URL", "")
+        if mapping_url:
+            try:
+                df_mapping = pd.read_csv(mapping_url)
+                st.session_state["mapping_df"] = df_mapping
+                st.sidebar.info(f"🌐 Mapping von URL geladen ({len(df_mapping)} Zeilen)")
+            except Exception as e:
+                st.sidebar.warning(f"⚠️ Konnte Mapping-URL nicht laden: {e}")
+        else:
+            st.info("📁 Bitte eine Mapping-Datei mit den Spalten 'Symbol' und 'Industry Name' hochladen oder eine URL in den Secrets angeben.")
+
 
 # Auto-Refresh exakt zu :05
 st.sidebar.subheader("🔄 Auto-Refresh (synchronisiert)")
