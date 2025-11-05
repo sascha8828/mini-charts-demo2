@@ -71,7 +71,7 @@ if auto_opt != "Manuell":
     delay = seconds_until_next(freq)
     st.sidebar.caption(f"Nächster Refresh: {(datetime.now()+timedelta(seconds=delay)):%H:%M:%S}")
     time.sleep(delay)
-    st.experimental_rerun()
+    st.rerun()
 
 # ============ Hilfsfunktionen ============
 def date_str(days_back: int) -> str:
